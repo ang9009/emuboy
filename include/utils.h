@@ -2,6 +2,7 @@
 #define UTILS_H
 
 #include <errno.h>
+#include <string.h>
 
 // Taken from https://stackoverflow.com/questions/66202939/using-perror-with-arguments
 #define PERRORF(FMT, ...) \

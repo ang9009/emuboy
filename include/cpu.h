@@ -57,11 +57,11 @@ typedef union {
 } hl_reg_t;
 
 typedef struct {
-  af_reg_t a;
+  af_reg_t af;
   bc_reg_t bc;
   de_reg_t de;
   hl_reg_t hl;
-  uint8_t sp;   // Stack pointer
+  uint16_t sp;  // Stack pointer
   uint16_t pc;  // Program counter
 } cpu_regs_t;
 
@@ -80,6 +80,6 @@ typedef struct {
  */
 bool read_file_into_rom(char* file_path, uint8_t* rom);
 
-void init_cpu(cpu_t* cpu, bool debug);
+void init_cpu(cpu_t* cpu);
 
 #endif
