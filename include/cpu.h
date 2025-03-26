@@ -4,9 +4,10 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-#define ROM_SIZE 0x7FFF
-#define VRAM_SIZE 8000
-#define WRAM_SIZE 8000
+#define ROM_BANK_SIZE 0x8000
+#define VRAM_SIZE 0x2000
+#define WRAM_SIZE 0x2000
+#define OAM_SIZE 0xA0
 
 /**
  * CPU registers
@@ -24,37 +25,24 @@ typedef union {
   uint8_t reg;
 } flags_reg_t;
 
-typedef union {
-  struct {
-    uint8_t a;
-    flags_reg_t f;
-  };
-  uint16_t reg;
-} af_reg_t;
+#define REGISTER_STRUCT(x, y) \
+  typedef union {             \
+    struct {                  \
+      uint8_t x;              \
+      uint8_t y;              \
+    };                        \
+    uint16_t reg;             \
+  } x##y##_reg_t;
 
-typedef union {
-  struct {
-    uint8_t b;
-    uint8_t c;
-  };
-  uint16_t reg;
-} bc_reg_t;
+#define REGISTERS       \
+  REGISTER_STRUCT(a, f) \
+  REGISTER_STRUCT(b, c) \
+  REGISTER_STRUCT(d, e) \
+  REGISTER_STRUCT(h, l)
 
-typedef union {
-  struct {
-    uint8_t d;
-    uint8_t e;
-  };
-  uint16_t reg;
-} de_reg_t;
-
-typedef union {
-  struct {
-    uint8_t h;
-    uint8_t l;
-  };
-  uint16_t reg;
-} hl_reg_t;
+REGISTERS
+#undef REGISTER_STRUCT
+#undef REGISTERS
 
 typedef struct {
   af_reg_t af;
@@ -70,9 +58,15 @@ typedef struct {
  */
 typedef struct {
   cpu_regs_t regs;
+  // Memory regions
+  // ! Need new helper for ROM memory access (read-only)
+  // ! Also can set up the registers using X-Macro
+  uint8_t rom_bank_0[ROM_BANK_SIZE];
+  uint8_t rom_bank_N[ROM_BANK_SIZE];
   uint8_t vram[VRAM_SIZE];
   uint8_t wram[WRAM_SIZE];
-  uint8_t rom[ROM_SIZE];
+  uint8_t oam[WRAM_SIZE];
+  // ! Missing remaining regions
 } cpu_t;
 
 /**

@@ -63,17 +63,19 @@ uint16_t* get_r16(uint8_t YY, cpu_t* cpu) {
     case 3:
       return &cpu->regs.sp;
     default:
-      PERRORF("Could not identify YY (%s) for r16 placeholder", YY);
+      PERRORF("Could not identify YY (%X) for r16 placeholder", YY);
       return NULL;
   }
 }
 
+bool get_mem_ptr(uint8_t* ptr, uint16_t addr) {}
+
 /**
- * Trnaslates r16mem placeholder to register value. Returns -1 if YY
- * is not recognized, and 0 otherwise. This modifies the HL register if necessary 
+ * Translates r16mem placeholder to register value. Returns true if YY
+ * is not recognized, and false otherwise. This modifies the HL register if necessary 
  * (HL+ or HL-).
  */
-int get_r16mem(uint8_t YY, cpu_t* cpu, uint16_t* out) {
+bool get_r16mem(uint8_t YY, cpu_t* cpu, uint16_t* out) {
   switch (YY) {
     case 0:
       *out = cpu->regs.bc.reg;
@@ -86,12 +88,13 @@ int get_r16mem(uint8_t YY, cpu_t* cpu, uint16_t* out) {
       break;
     case 3:
       *out = cpu->regs.hl.reg--;
+      break;
     default:
       PERRORF("Could not identify YY value when getting r16mem: %d", YY);
-      return -1;
+      return false;
   }
 
-  return 0;
+  return true;
 }
 
 /**
@@ -137,9 +140,8 @@ bool do_block_zero_insns(const opcode_t opcode_data, cpu_t* cpu, bool debug) {
       cpu->regs.pc += 3;
       break;
     case 0b0010:
-      // ! Incomplete. Might want to look over the helper functions to check for potential bugs
       uint16_t addr;
-      if (get_r16mem(opcode_data.YY, cpu, &addr) != 0) {
+      if (!get_r16mem(opcode_data.YY, cpu, &addr)) {
         return false;
       }
       break;
