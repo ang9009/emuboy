@@ -8,12 +8,13 @@
 #define VRAM_SIZE 0x2000
 #define WRAM_SIZE 0x2000
 #define OAM_SIZE 0xA0
+#define IO_REGS_SIZE 0x80
+#define HRAM_SIZE 0x7F
+#define ERAM_SIZE 0x2000
 
 /**
  * CPU registers
  */
-
-// Flags struct for the AF register
 typedef union {
   struct {
     uint8_t : 4;  // Upper 4 bits ignored
@@ -59,21 +60,22 @@ typedef struct {
 typedef struct {
   cpu_regs_t regs;
   // Memory regions
-  // ! Need new helper for ROM memory access (read-only)
-  // ! Also can set up the registers using X-Macro
   uint8_t rom_bank_0[ROM_BANK_SIZE];
   uint8_t rom_bank_N[ROM_BANK_SIZE];
   uint8_t vram[VRAM_SIZE];
   uint8_t wram[WRAM_SIZE];
+  uint8_t* eram;  // External ram from cartridge. Set to NULL if not available,
   uint8_t oam[WRAM_SIZE];
-  // ! Missing remaining regions
+  uint8_t io_regs[IO_REGS_SIZE];
+  uint8_t hram[HRAM_SIZE];
+  uint8_t ie;  // Interrupt enable register
 } cpu_t;
 
 /**
  * Helper functions
  */
 bool read_file_into_rom(char* file_path, uint8_t* rom);
-
 void init_cpu(cpu_t* cpu);
+void destroy_cpu(cpu_t* cpu);
 
 #endif

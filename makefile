@@ -1,6 +1,6 @@
 CFLAGS=-std=c99 -Wall -Wextra -Werror
 
-main:
+all:
 	gcc ./src/main.c ./src/cpu.c -o ./out/main -g $(CFLAGS)
 
 clean:
