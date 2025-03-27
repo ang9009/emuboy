@@ -11,55 +11,43 @@ typedef struct {
   uint8_t ZZZZ : 4;
 } opcode_t;
 
-// Reads values from ROM/RAM.
-bool read_mem(const uint16_t addr, const cpu_t* cpu, uint8_t* val) {
-  // ROM
-  if (addr <= 0x3FFF) {
-    *val = cpu->rom_bank_0[addr];
-    return true;
-  } else if (addr >= 0x4000 && addr <= 0x7FFF) {
-    *val = cpu->rom_bank_N[addr - 0x4000];
-    return true;
+// Provides a pointer to position in RAM. Exits if address is invalid memory location.
+static uint8_t* get_ram_ptr(const uint16_t addr, cpu_t* cpu) {
+  if (addr >= 0x8000 && addr <= 0x9FFF) {
+    return &cpu->vram[addr - 0x8000];
+  } else if (cpu->eram != NULL && addr >= 0xA000 && addr <= 0xBFFF) {
+    return &cpu->eram[addr - 0xA000];
+  } else if (addr >= 0xC000 && addr <= 0xDFFF) {
+    return &cpu->wram[addr - 0xC000];
+  } else if (addr >= 0xFE00 && addr <= 0xFE9F) {
+    return &cpu->oam[addr - 0xFE00];
+  } else if (addr >= 0xFF00 && addr <= 0xFF7F) {
+    return &cpu->io_regs[addr - 0xFF00];
+  } else if (addr >= 0xFF80 && addr <= 0xFFFE) {
+    return &cpu->hram[addr - 0xFF80];
+  } else if (addr == 0xFFFF) {
+    return &cpu->ie;
   }
 
-  // RAM
-  uint8_t* ram_ptr;
-  if (get_ram_ptr(addr, cpu, &ram_ptr)) {
-    *val = *ram_ptr;
-  }
-  return false;
+  PERRORF("Attempted to access invalid memory location 0x%04X", addr);
+  exit(EXIT_FAILURE);
 }
 
-// Provides a pointer to position in RAM.
-bool get_ram_ptr(const uint16_t addr, const cpu_t* cpu, uint8_t** ptr) {
-  if (addr >= 0x8000 && addr <= 0x9FFF) {
-    *ptr = &cpu->vram[addr - 0x8000];
-    return true;
-  } else if (cpu->eram != NULL && addr >= 0xA000 && addr <= 0xBFFF) {
-    *ptr = &cpu->eram[addr - 0xA000];
-    return true;
-  } else if (addr >= 0xC000 && addr <= 0xDFFF) {
-    *ptr = &cpu->wram[addr - 0xC000];
-    return true;
-  } else if (addr >= 0xFE00 && addr <= 0xFE9F) {
-    *ptr = &cpu->oam[addr - 0xFE00];
-    return true;
-  } else if (addr >= 0xFF00 && addr <= 0xFF7F) {
-    *ptr = &cpu->io_regs[addr - 0xFF00];
-    return true;
-  } else if (addr >= 0xFF80 && addr <= 0xFFFE) {
-    *ptr = &cpu->hram[addr - 0xFF80];
-    return true;
-  } else if (addr == 0xFFFF) {
-    *ptr = &cpu->ie;
-    return true;
+// Reads values from ROM/RAM.
+static uint8_t read_mem(const uint16_t addr, cpu_t* cpu) {
+  if (addr <= 0x3FFF) {
+    return cpu->rom_bank_0[addr];
+  } else if (addr >= 0x4000 && addr <= 0x7FFF) {
+    return cpu->rom_bank_N[addr - 0x4000];
   }
 
-  return false;
+  // This will exit if address is invalid
+  return *get_ram_ptr(addr, cpu);
 }
 
 bool read_file_into_rom(char* file_path, uint8_t* rom) {
   (void)file_path;
+  (void)rom;
   // FILE* file = fopen(file_path, "r");
   // if (file == NULL) {
   //   perror("Could not find file");
@@ -94,21 +82,23 @@ bool read_file_into_rom(char* file_path, uint8_t* rom) {
 void init_cpu(cpu_t* cpu) {
   cpu = malloc(sizeof(cpu_t));
   // ! Should be conditional - if there is external RAM available, then malloc
-  cpu->eram = malloc(ERAM_SIZE);
+  //  ! Read cartridge header
+  cpu->eram = malloc(69);
 }
 
-void destroy_cpu(cpu_t* cpu) {
+void cleanup_cpu(cpu_t* cpu) {
   if (cpu->eram != NULL) {
     free(cpu->eram);
   }
+
   free(cpu);
 }
 
 /**
- * Translates r16 placeholder to register value pointer. Returns NULL if YY 
+ * Translates r16 placeholder to register value pointer. Exits if YY 
  * is not recognized
  */
-uint16_t* get_r16(uint8_t YY, cpu_t* cpu) {
+static uint16_t* get_r16_ptr(uint8_t YY, cpu_t* cpu) {
   switch (YY) {
     case 0:
       return &cpu->regs.bc.reg;
@@ -120,7 +110,7 @@ uint16_t* get_r16(uint8_t YY, cpu_t* cpu) {
       return &cpu->regs.sp;
     default:
       PERRORF("Could not identify YY (%X) for r16 placeholder", YY);
-      return NULL;
+      exit(EXIT_FAILURE);
   }
 }
 
@@ -129,23 +119,23 @@ uint16_t* get_r16(uint8_t YY, cpu_t* cpu) {
  * is not recognized, and false otherwise. This modifies the HL register if necessary 
  * (HL+ or HL-).
  */
-bool get_r16mem(uint8_t YY, cpu_t* cpu, uint16_t* out) {
+static uint16_t get_r16mem(uint8_t YY, cpu_t* cpu) {
   switch (YY) {
     case 0:
-      *out = cpu->regs.bc.reg;
+      return cpu->regs.bc.reg;
       break;
     case 1:
-      *out = cpu->regs.de.reg;
+      return cpu->regs.de.reg;
       break;
     case 2:
-      *out = cpu->regs.hl.reg++;
+      return cpu->regs.hl.reg++;
       break;
     case 3:
-      *out = cpu->regs.hl.reg--;
+      return cpu->regs.hl.reg--;
       break;
     default:
       PERRORF("Could not identify YY value when getting r16mem: %d", YY);
-      return false;
+      exit(EXIT_FAILURE);
   }
 
   return true;
@@ -156,16 +146,17 @@ bool get_r16mem(uint8_t YY, cpu_t* cpu, uint16_t* out) {
  * if successful, or -1 if out of bounds. This assumes that the opcode is 8 bits long, and 
  * that the address was originally stored in little-endian.
  */
-int get_imm16(const uint16_t op_addr, const cpu_t cpu, uint16_t* out) {
+static uint16_t get_imm16(const uint16_t op_addr, cpu_t cpu) {
   // Upper and lower in big endian
-  uint8_t lower = read_mem(op_addr + 1, &cpu);
-  uint8_t upper = read_mem(op_addr + 2, &cpu);
-  *out = (upper << 8) | lower;
-  return 0;
+  uint8_t* lower = read_mem(op_addr + 1, &cpu);
+  uint8_t* upper = read_mem(op_addr + 2, &cpu);
+
+  return (*upper << 8) | *lower;
 }
 
 // Interprets block zero instructions. Updates the PC accordingly
-bool do_block_zero_insns(const opcode_t opcode_data, cpu_t* cpu, bool debug) {
+static bool do_block_zero_insns(const opcode_t opcode_data, cpu_t* cpu,
+                                bool debug) {
   switch (opcode_data.ZZZZ) {
     case 0b0000:
       if (debug) {
@@ -175,14 +166,11 @@ bool do_block_zero_insns(const opcode_t opcode_data, cpu_t* cpu, bool debug) {
       cpu->regs.pc += 1;
       break;
     case 0b0001:
-      uint16_t* reg_ptr = get_r16(opcode_data.YY, cpu);
+      uint16_t* reg_ptr = get_r16_ptr(opcode_data.YY, cpu);
       if (reg_ptr == NULL) {
         return false;
       }
-      uint16_t imm16;
-      if (get_imm16(cpu->regs.pc, *cpu, &imm16) != 0) {
-        return false;
-      }
+      uint16_t imm16 = get_imm16(cpu->regs.pc, *cpu);
 
       if (debug) {
         printf("ld r16 (%d) 0x%04X", opcode_data.YY, imm16);
@@ -192,10 +180,7 @@ bool do_block_zero_insns(const opcode_t opcode_data, cpu_t* cpu, bool debug) {
       cpu->regs.pc += 3;
       break;
     case 0b0010:
-      uint16_t addr;
-      if (!get_r16mem(opcode_data.YY, cpu, &addr)) {
-        return false;
-      }
+      uint16_t addr = get_r16mem(opcode_data.YY, cpu);
       break;
     default:
       printf("Could not identify last 4 bits %X", opcode_data.ZZZZ);
@@ -210,7 +195,7 @@ bool do_block_zero_insns(const opcode_t opcode_data, cpu_t* cpu, bool debug) {
  * Performs 1 cycle of the fetch-decode-execute cycle.
  */
 bool perform_cycle(cpu_t* cpu, bool debug) {
-  const uint8_t opcode = read_mem(cpu->regs.pc, cpu);
+  uint8_t opcode = read_mem(cpu->regs.pc, cpu);
 
   // Consider the opcode's bits as XXYYZZZZ
   uint8_t XX = (opcode >> 6);
@@ -229,7 +214,7 @@ bool perform_cycle(cpu_t* cpu, bool debug) {
     case 2:
       break;
     default:
-      PERRORF("Could not identify instruction block XX = 0x%4X\n", XX);
+      fprintf(stderr, "Could not identify instruction block XX = 0x%4X\n", XX);
       return false;
   }
 

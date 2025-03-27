@@ -10,7 +10,6 @@
 #define OAM_SIZE 0xA0
 #define IO_REGS_SIZE 0x80
 #define HRAM_SIZE 0x7F
-#define ERAM_SIZE 0x2000
 
 /**
  * CPU registers
@@ -65,6 +64,7 @@ typedef struct {
   uint8_t vram[VRAM_SIZE];
   uint8_t wram[WRAM_SIZE];
   uint8_t* eram;  // External ram from cartridge. Set to NULL if not available,
+  uint32_t eram_size;  // At most 128 KB
   uint8_t oam[WRAM_SIZE];
   uint8_t io_regs[IO_REGS_SIZE];
   uint8_t hram[HRAM_SIZE];
@@ -74,8 +74,17 @@ typedef struct {
 /**
  * Helper functions
  */
+
+//  Reads a cartridge file into ROM
 bool read_file_into_rom(char* file_path, uint8_t* rom);
+
+// Initializes the CPU
 void init_cpu(cpu_t* cpu);
-void destroy_cpu(cpu_t* cpu);
+
+// Frees memory related to the CPU
+void cleanup_cpu(cpu_t* cpu);
+
+// Performs 1 iteration of the fetch-decode-execute cycle
+bool perform_cycle(cpu_t* cpu, bool debug);
 
 #endif
