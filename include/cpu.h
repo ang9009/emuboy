@@ -60,8 +60,7 @@ typedef struct {
   uint8_t vram[VRAM_SIZE];
   uint8_t wram[WRAM_SIZE];
   uint8_t*
-      eram;  // External ram from cartridge for savestates. Set to NULL if not available,
-  uint32_t eram_size;  // At most 128 KB
+      eram;  // External ram from cartridsssge for savestates. Set to NULL if not available,
   uint8_t oam[WRAM_SIZE];
   uint8_t io_regs[IO_REGS_SIZE];
   uint8_t hram[HRAM_SIZE];
@@ -90,6 +89,6 @@ void init_cpu(cpu_t* cpu, char* cart_file);
 void cleanup_cpu(cpu_t* cpu);
 
 // Performs 1 iteration of the fetch-decode-execute cycle
-bool perform_cycle(cpu_t* cpu, bool debug);
+void perform_cycle(cpu_t* cpu, bool debug);
 
 #endif

@@ -45,6 +45,7 @@ static uint8_t read_mem(const uint16_t addr, cpu_mem_t mem) {
   return *get_ram_ptr(addr, &mem);
 }
 
+// Reads the cart into memory banks and the cart member
 void read_cart_into_mem(char* file_path, cpu_mem_t* cpu_mem) {
   FILE* file = fopen(file_path, "rb");
   if (file == NULL) {
@@ -93,11 +94,11 @@ void read_cart_into_mem(char* file_path, cpu_mem_t* cpu_mem) {
 void init_cpu(cpu_t* cpu, char* cart_file) {
   cpu = malloc(sizeof(cpu_t));
 
+  // Memory
   read_cart_into_mem(cart_file, &cpu->mem);
   const uint8_t eram_type = cpu->mem.cart[0x0149];
-  int eram_size = 0;
+  size_t eram_size = 0;
 
-  // ! Incomplete
   switch (eram_type) {
     case 0x0:
       cpu->mem.eram = NULL;
@@ -105,10 +106,25 @@ void init_cpu(cpu_t* cpu, char* cart_file) {
     case 0x2:
       eram_size = 8 * 1000;
       break;
+    case 0x3:
+      eram_size = 32 * 1000;
+      break;
+    case 0x4:
+      eram_size = 128 * 1000;
+      break;
+    case 0x5:
+      eram_size = 64 * 1000;
+      break;
+    default:
+      PERRORF("Unexpected SRAM/ERAM type: 0x%04X", eram_type);
+      exit(EXIT_FAILURE);
   }
   if (eram_size != 0) {
     cpu->mem.eram = malloc(eram_size);  // Placeholder lol
   }
+
+  // Registers
+  cpu->regs.pc = 0x0100;
 }
 
 void cleanup_cpu(cpu_t* cpu) {
@@ -180,7 +196,7 @@ static uint16_t get_imm16(const uint16_t op_addr, cpu_mem_t mem) {
 }
 
 // Interprets block zero instructions. Updates the PC accordingly
-static bool do_block_zero_insns(const opcode_t opcode_data, cpu_t* cpu,
+static void do_block_zero_insns(const opcode_t opcode_data, cpu_t* cpu,
                                 bool debug) {
   switch (opcode_data.ZZZZ) {
     case 0b0000:
@@ -192,11 +208,7 @@ static bool do_block_zero_insns(const opcode_t opcode_data, cpu_t* cpu,
       break;
     case 0b0001:
       uint16_t* reg_ptr = get_r16_ptr(opcode_data.YY, cpu);
-      if (reg_ptr == NULL) {
-        return false;
-      }
       uint16_t imm16 = get_imm16(cpu->regs.pc, cpu->mem);
-
       if (debug) {
         printf("ld r16 (%d) 0x%04X", opcode_data.YY, imm16);
       }
@@ -209,18 +221,17 @@ static bool do_block_zero_insns(const opcode_t opcode_data, cpu_t* cpu,
       (void)addr;
       break;
     default:
-      printf("Could not identify last 4 bits %X", opcode_data.ZZZZ);
-      return false;
+      PERRORF("Could not identify last 4 bits %X", opcode_data.ZZZZ);
+      exit(EXIT_FAILURE);
   }
 
   printf("\n");
-  return true;
 }
 
 /**
  * Performs 1 cycle of the fetch-decode-execute cycle.
  */
-bool perform_cycle(cpu_t* cpu, bool debug) {
+void perform_cycle(cpu_t* cpu, bool debug) {
   uint8_t opcode = read_mem(cpu->regs.pc, cpu->mem);
 
   // Consider the opcode's bits as XXYYZZZZ
@@ -233,16 +244,12 @@ bool perform_cycle(cpu_t* cpu, bool debug) {
   // Each helper increments the PC
   switch (XX) {  // Identify block
     case 1:
-      if (!do_block_zero_insns(opcode_data, cpu, debug)) {
-        return false;
-      }
+      do_block_zero_insns(opcode_data, cpu, debug);
       break;
     case 2:
       break;
     default:
-      fprintf(stderr, "Could not identify instruction block XX = 0x%4X\n", XX);
-      return false;
+      PERRORF("Could not identify instruction block XX = 0x%4X\n", XX);
+      exit(EXIT_FAILURE);
   }
-
-  return true;
 }
