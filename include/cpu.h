@@ -53,22 +53,27 @@ typedef struct {
   uint16_t pc;  // Program counter
 } cpu_regs_t;
 
-/**
- * CPU
- */
 typedef struct {
-  cpu_regs_t regs;
-  // Memory regions
   uint8_t rom_bank_0[ROM_BANK_SIZE];
   uint8_t rom_bank_N[ROM_BANK_SIZE];
+  uint8_t* cart;  // The entire cartridge
   uint8_t vram[VRAM_SIZE];
   uint8_t wram[WRAM_SIZE];
-  uint8_t* eram;  // External ram from cartridge. Set to NULL if not available,
+  uint8_t*
+      eram;  // External ram from cartridge for savestates. Set to NULL if not available,
   uint32_t eram_size;  // At most 128 KB
   uint8_t oam[WRAM_SIZE];
   uint8_t io_regs[IO_REGS_SIZE];
   uint8_t hram[HRAM_SIZE];
   uint8_t ie;  // Interrupt enable register
+} cpu_mem_t;
+
+/**
+ * CPU
+ */
+typedef struct {
+  cpu_regs_t regs;  // Registers
+  cpu_mem_t mem;    // Memory regions
 } cpu_t;
 
 /**
@@ -76,10 +81,10 @@ typedef struct {
  */
 
 //  Reads a cartridge file into ROM
-bool read_file_into_rom(char* file_path, uint8_t* rom);
+void read_file_into_rom(char* file_path, cpu_t* cpu);
 
 // Initializes the CPU
-void init_cpu(cpu_t* cpu);
+void init_cpu(cpu_t* cpu, char* cart_file);
 
 // Frees memory related to the CPU
 void cleanup_cpu(cpu_t* cpu);
