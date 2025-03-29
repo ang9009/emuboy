@@ -4,7 +4,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-#define ROM_BANK_SIZE 0x8000
+#define ROM_BANK_SIZE 0x4000
 #define VRAM_SIZE 0x2000
 #define WRAM_SIZE 0x2000
 #define OAM_SIZE 0xA0

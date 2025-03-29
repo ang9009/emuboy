@@ -155,31 +155,57 @@ static uint16_t* get_r16_ptr(uint8_t YY, cpu_t* cpu) {
   }
 }
 
+typedef struct {
+  uint16_t* r16mem_ptr;  // Pointer to the r16mem register
+  int post_op;  // The value the register should be changed by after the operation
+} r16mem_ptr_t;
+
 /**
- * Translates r16mem placeholder to register value. Returns true if YY
- * is not recognized, and false otherwise. This modifies the HL register if necessary 
- * (HL+ or HL-).
+ * Translates r16mem placeholder to register pointer. It is the caller's responsibility
+ * to update the register's value once the register has been accessed according to the
+ * return value.
  */
-static uint16_t get_r16mem(uint8_t YY, cpu_t* cpu) {
+static r16mem_ptr_t get_r16mem_ptr(uint8_t YY, cpu_t* cpu) {
+  uint16_t* reg_ptr = NULL;
+  int post_op = 0;
+
   switch (YY) {
     case 0:
-      return cpu->regs.bc.reg;
+      reg_ptr = &cpu->regs.bc.reg;
       break;
     case 1:
-      return cpu->regs.de.reg;
+      reg_ptr = &cpu->regs.de.reg;
       break;
     case 2:
-      return cpu->regs.hl.reg++;
+      reg_ptr = &cpu->regs.hl.reg;
+      post_op = 1;
       break;
     case 3:
-      return cpu->regs.hl.reg--;
+      reg_ptr = &cpu->regs.hl.reg;
+      post_op = -1;
       break;
     default:
       PERRORF("Could not identify YY value when getting r16mem: %d", YY);
       exit(EXIT_FAILURE);
   }
 
-  return true;
+  return (r16mem_ptr_t){
+      .r16mem_ptr = reg_ptr,
+      .post_op = post_op,
+  };
+}
+
+/**
+ * Translates r16mem placeholder to register value. Returns true if YY
+ * is not recognized, and false otherwise. This modifies the HL register if necessary 
+ * (HL+ or HL-).
+ */
+static uint16_t get_r16mem_val(uint8_t YY, cpu_t* cpu) {
+  r16mem_ptr_t reg_data = get_r16mem_ptr(YY, cpu);
+  uint16_t val = *reg_data.r16mem_ptr;
+  *reg_data.r16mem_ptr += reg_data.post_op;
+
+  return val;
 }
 
 /**
@@ -196,8 +222,8 @@ static uint16_t get_imm16(const uint16_t op_addr, cpu_mem_t mem) {
 }
 
 // Interprets block zero instructions. Updates the PC accordingly
-static void do_block_zero_insns(const opcode_t opcode_data, cpu_t* cpu,
-                                bool debug) {
+static void do_block_0_insns(const opcode_t opcode_data, cpu_t* cpu,
+                             bool debug) {
   switch (opcode_data.ZZZZ) {
     case 0b0000:
       if (debug) {
@@ -217,8 +243,26 @@ static void do_block_zero_insns(const opcode_t opcode_data, cpu_t* cpu,
       cpu->regs.pc += 3;
       break;
     case 0b0010:
-      uint16_t addr = get_r16mem(opcode_data.YY, cpu);
-      (void)addr;
+      r16mem_ptr_t reg_data = get_r16mem_ptr(opcode_data.YY, cpu);
+      *reg_data.r16mem_ptr = cpu->regs.af.a;
+      *reg_data.r16mem_ptr += reg_data.post_op;
+
+      cpu->regs.pc += 1;
+      break;
+    case 0b1010:
+      uint16_t addr = get_r16mem_val(opcode_data.YY, cpu);
+      uint8_t val = read_mem(addr, cpu->mem);
+
+      cpu->regs.af.a = val;
+      cpu->regs.pc += 1;
+      break;
+    case 0b1000:
+      uint16_t addr = get_imm16(cpu->regs.pc, cpu->mem);
+      uint8_t* ram_ptr = get_ram_ptr(addr, &cpu->mem);
+
+      *ram_ptr = cpu->regs.sp;
+      // ! Make a helper function so that I don't have ot keep thinkin gagbout this w/ ENUM
+      cpu->regs.pc += 3;
       break;
     default:
       PERRORF("Could not identify last 4 bits %X", opcode_data.ZZZZ);
@@ -244,7 +288,7 @@ void perform_cycle(cpu_t* cpu, bool debug) {
   // Each helper increments the PC
   switch (XX) {  // Identify block
     case 1:
-      do_block_zero_insns(opcode_data, cpu, debug);
+      do_block_0_insns(opcode_data, cpu, debug);
       break;
     case 2:
       break;
