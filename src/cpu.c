@@ -26,10 +26,13 @@ static void update_pc(enum grping_type_e grping_type, cpu_t* cpu) {
   switch (grping_type) {
     case IMM8:
       cpu->regs.pc += 2;
+      break;
     case IMM16:
       cpu->regs.pc += 3;
+      break;
     case OTHER:
       cpu->regs.pc += 1;
+      break;
     default:
       perror("Unrecognized grouping type");
       exit(EXIT_FAILURE);
@@ -409,15 +412,19 @@ static bool handle_block0_3bit_opcodes(opcode_t opcode_data, cpu_t* cpu,
   return true;
 }
 
+// Handles opcodes uniquely identified by all 8 bits in block 0
 static bool handle_block0_8bit_opcodes(uint8_t opcode, cpu_t* cpu, bool debug) {
   switch (opcode) {
-    case 0b0000: {  // nop
+    case 0b00000000: {  // nop
       if (debug) {
         printf("nop");
       }
 
       update_pc(OTHER, cpu);
       break;
+    }
+    case 0b00001111: {  // rlca
+      // ! Incomplete
     }
     default: {
       return false;
