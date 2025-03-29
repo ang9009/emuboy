@@ -14,6 +14,28 @@ typedef struct {
   uint8_t ZZZ : 3;  // Last 3 bits
 } opcode_t;
 
+// The grouping type of an instruction. imm8 and imm16 require incrementing the PC differently
+enum grping_type_e {
+  OTHER,  // Increment PC by 1
+  IMM8,   // Increment PC by 2
+  IMM16,  // Increment PC by 3
+};
+
+// Updates the PC based on the grouping type used in the instruction
+static void update_pc(enum grping_type_e grping_type, cpu_t* cpu) {
+  switch (grping_type) {
+    case IMM8:
+      cpu->regs.pc += 2;
+    case IMM16:
+      cpu->regs.pc += 3;
+    case OTHER:
+      cpu->regs.pc += 1;
+    default:
+      perror("Unrecognized grouping type");
+      exit(EXIT_FAILURE);
+  }
+}
+
 // Provides a pointer to position in RAM. Exits if address is invalid memory location.
 static uint8_t* get_ram_ptr(const uint16_t addr, cpu_mem_t* mem) {
   if (addr >= 0x8000 && addr <= 0x9FFF) {
@@ -36,7 +58,7 @@ static uint8_t* get_ram_ptr(const uint16_t addr, cpu_mem_t* mem) {
   exit(EXIT_FAILURE);
 }
 
-// Reads values from ROM/RAM.
+// Reads 8 bit values from ROM/RAM.
 static uint8_t read_mem(const uint16_t addr, cpu_mem_t mem) {
   if (addr <= 0x3FFF) {
     return mem.rom_bank_0[addr];
@@ -262,7 +284,7 @@ static bool handle_block0_4bit_opcodes(opcode_t opcode_data, cpu_t* cpu,
       }
 
       *reg_ptr = imm16;
-      cpu->regs.pc += 3;
+      update_pc(IMM16, cpu);
       break;
     }
     case 0b0010: {  // ld [r16mem], a
@@ -284,7 +306,7 @@ static bool handle_block0_4bit_opcodes(opcode_t opcode_data, cpu_t* cpu,
       }
 
       cpu->regs.af.a = val;
-      cpu->regs.pc += 1;
+      update_pc(OTHER, cpu);
       break;
     }
     case 0b1000: {  // ld [imm16], sp
@@ -295,7 +317,7 @@ static bool handle_block0_4bit_opcodes(opcode_t opcode_data, cpu_t* cpu,
       }
 
       *ram_ptr = cpu->regs.sp;
-      cpu->regs.pc += 3;
+      update_pc(IMM16, cpu);
       break;
     }
     case 0b0011: {  // inc r16
@@ -305,7 +327,7 @@ static bool handle_block0_4bit_opcodes(opcode_t opcode_data, cpu_t* cpu,
 
       uint16_t* r16_ptr = get_r16_ptr(opcode_data.YY, cpu);
       *r16_ptr += 1;
-      cpu->regs.pc += 1;
+      update_pc(OTHER, cpu);
       break;
     }
     case 0b1011: {  // dec r16
@@ -315,7 +337,7 @@ static bool handle_block0_4bit_opcodes(opcode_t opcode_data, cpu_t* cpu,
 
       uint16_t* r16_ptr = get_r16_ptr(opcode_data.YY, cpu);
       *r16_ptr -= 1;
-      cpu->regs.pc += 1;
+      update_pc(OTHER, cpu);
       break;
     }
     case 0b1001: {  // add hl, r16
@@ -326,7 +348,7 @@ static bool handle_block0_4bit_opcodes(opcode_t opcode_data, cpu_t* cpu,
       const uint16_t r16_val = *get_r16_ptr(opcode_data.YY, cpu);
       cpu->regs.hl.reg += r16_val;
 
-      cpu->regs.pc += 1;
+      update_pc(OTHER, cpu);
       break;
     }
     default: {
@@ -335,6 +357,11 @@ static bool handle_block0_4bit_opcodes(opcode_t opcode_data, cpu_t* cpu,
   }
 
   return true;
+}
+
+// Gets the immediate 8 bit value after the opcode at the given address
+static uint8_t get_imm8(const uint16_t op_addr, const cpu_mem_t mem) {
+  return read_mem(op_addr + 1, mem);
 }
 
 static bool handle_block0_3bit_opcodes(opcode_t opcode_data, cpu_t* cpu,
@@ -348,7 +375,7 @@ static bool handle_block0_3bit_opcodes(opcode_t opcode_data, cpu_t* cpu,
       uint8_t* r8_ptr = get_r8_ptr(opcode_data.YYZ, cpu);
       (*r8_ptr)++;
 
-      cpu->regs.pc += 1;
+      update_pc(OTHER, cpu);
       break;
     }
     case 0b101: {  // dec r8
@@ -359,7 +386,19 @@ static bool handle_block0_3bit_opcodes(opcode_t opcode_data, cpu_t* cpu,
       uint8_t* r8_ptr = get_r8_ptr(opcode_data.YYZ, cpu);
       (*r8_ptr)--;
 
-      cpu->regs.pc += 1;
+      update_pc(OTHER, cpu);
+      break;
+    }
+    case 0b110: {  // ld r8, imm8
+      const uint8_t imm8 = get_imm8(cpu->regs.pc, cpu->mem);
+      if (debug) {
+        printf("ld r8 (%d), 0x%02X", opcode_data.YYZ, imm8);
+      }
+
+      uint8_t* r8 = get_r8_ptr(opcode_data.YYZ, cpu);
+      *r8 = imm8;
+
+      update_pc(IMM8, cpu);
       break;
     }
     default: {
@@ -377,7 +416,7 @@ static bool handle_block0_8bit_opcodes(uint8_t opcode, cpu_t* cpu, bool debug) {
         printf("nop");
       }
 
-      cpu->regs.pc += 1;
+      update_pc(OTHER, cpu);
       break;
     }
     default: {
