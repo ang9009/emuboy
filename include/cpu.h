@@ -60,11 +60,12 @@ typedef struct {
   uint8_t vram[VRAM_SIZE];
   uint8_t wram[WRAM_SIZE];
   uint8_t*
-      eram;  // External ram from cartridsssge for savestates. Set to NULL if not available,
+      eram;  // External ram from cartridge for savestates. Set to NULL if not available
   uint8_t oam[WRAM_SIZE];
   uint8_t io_regs[IO_REGS_SIZE];
   uint8_t hram[HRAM_SIZE];
-  uint8_t ie;  // Interrupt enable register
+  uint8_t ie;       // Interrupt enable register
+  uint64_t cycles;  // Number of t-cycles
 } cpu_mem_t;
 
 /**

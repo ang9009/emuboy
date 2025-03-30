@@ -14,28 +14,61 @@ typedef struct {
   uint8_t ZZZ : 3;  // Last 3 bits
 } opcode_t;
 
-// The grouping type of an instruction. imm8 and imm16 require incrementing the PC differently
-enum grping_type_e {
-  OTHER,  // Increment PC by 1
-  IMM8,   // Increment PC by 2
-  IMM16,  // Increment PC by 3
-};
+// Returns the total length of the instruction given the opcode
+static uint8_t get_insn_length(uint8_t opcode) {
+  switch (opcode) {
+    // 3-byte instructions
+    case 0x01:  // LD BC, d16
+    case 0x11:  // LD DE, d16
+    case 0x21:  // LD HL, d16
+    case 0x31:  // LD SP, d16
+    case 0x08:  // LD (u16),SP
+    case 0xC2:  // JP NZ,u16
+    case 0xC3:  // JP u16
+    case 0xC4:  // CALL NZ,u16
+    case 0xCA:  // JP Z,u16
+    case 0xCC:  // CALL Z,u16
+    case 0xCD:  // CALL u16
+    case 0xD2:  // JP NC,u16
+    case 0xD4:  // CALL NC,u16
+    case 0xDA:  // JP C,u16
+    case 0xDC:  // CALL C,u16
+    case 0xEA:  // LD (u16),A
+    case 0xFA:  // LD A,(u16)
+      return 3;
 
-// Updates the PC based on the grouping type used in the instruction
-static void update_pc(enum grping_type_e grping_type, cpu_t* cpu) {
-  switch (grping_type) {
-    case IMM8:
-      cpu->regs.pc += 2;
-      break;
-    case IMM16:
-      cpu->regs.pc += 3;
-      break;
-    case OTHER:
-      cpu->regs.pc += 1;
-      break;
+    // 2-byte instructions
+    case 0x20:
+    case 0x30:
+    case 0xE0:
+    case 0xF0:
+    case 0x06:
+    case 0x16:
+    case 0x26:
+    case 0x36:
+    case 0xC6:
+    case 0xD6:
+    case 0xE6:
+    case 0xF6:
+    case 0x18:
+    case 0x28:
+    case 0x38:
+    case 0xE8:
+    case 0xF8:
+    case 0x0E:
+    case 0x1E:
+    case 0x2E:
+    case 0x3E:
+    case 0xCE:
+    case 0xDE:
+    case 0xEE:
+    case 0xFE:
+    case 0xCB:
+      return 2;
+
+    // 1-byte instructions
     default:
-      perror("Unrecognized grouping type");
-      exit(EXIT_FAILURE);
+      return 1;
   }
 }
 
@@ -59,6 +92,12 @@ static uint8_t* get_ram_ptr(const uint16_t addr, cpu_mem_t* mem) {
 
   PERRORF("Attempted to access invalid memory location 0x%04X", addr);
   exit(EXIT_FAILURE);
+}
+
+// Updates the PC by the length of the current instruction
+void update_pc(uint8_t opcode, cpu_t* cpu) {
+  int inc = get_insn_length(opcode);
+  cpu->regs.pc += inc;
 }
 
 // Reads 8 bit values from ROM/RAM.
@@ -120,7 +159,7 @@ void read_cart_into_mem(char* file_path, cpu_mem_t* cpu_mem) {
 }
 
 void init_cpu(cpu_t* cpu, char* cart_file) {
-  cpu = malloc(sizeof(cpu_t));
+  cpu = calloc(1, sizeof(cpu_t));
 
   // Memory
   read_cart_into_mem(cart_file, &cpu->mem);
@@ -287,7 +326,6 @@ static bool handle_block0_4bit_opcodes(opcode_t opcode_data, cpu_t* cpu,
       }
 
       *reg_ptr = imm16;
-      update_pc(IMM16, cpu);
       break;
     }
     case 0b0010: {  // ld [r16mem], a
@@ -297,8 +335,6 @@ static bool handle_block0_4bit_opcodes(opcode_t opcode_data, cpu_t* cpu,
       }
       *reg_data.r16mem_ptr = cpu->regs.af.a;
       *reg_data.r16mem_ptr += reg_data.post_op;
-
-      cpu->regs.pc += 1;
       break;
     }
     case 0b1010: {  // ld a, [r16mem]
@@ -309,7 +345,6 @@ static bool handle_block0_4bit_opcodes(opcode_t opcode_data, cpu_t* cpu,
       }
 
       cpu->regs.af.a = val;
-      update_pc(OTHER, cpu);
       break;
     }
     case 0b1000: {  // ld [imm16], sp
@@ -320,7 +355,6 @@ static bool handle_block0_4bit_opcodes(opcode_t opcode_data, cpu_t* cpu,
       }
 
       *ram_ptr = cpu->regs.sp;
-      update_pc(IMM16, cpu);
       break;
     }
     case 0b0011: {  // inc r16
@@ -330,7 +364,6 @@ static bool handle_block0_4bit_opcodes(opcode_t opcode_data, cpu_t* cpu,
 
       uint16_t* r16_ptr = get_r16_ptr(opcode_data.YY, cpu);
       *r16_ptr += 1;
-      update_pc(OTHER, cpu);
       break;
     }
     case 0b1011: {  // dec r16
@@ -340,7 +373,6 @@ static bool handle_block0_4bit_opcodes(opcode_t opcode_data, cpu_t* cpu,
 
       uint16_t* r16_ptr = get_r16_ptr(opcode_data.YY, cpu);
       *r16_ptr -= 1;
-      update_pc(OTHER, cpu);
       break;
     }
     case 0b1001: {  // add hl, r16
@@ -350,8 +382,6 @@ static bool handle_block0_4bit_opcodes(opcode_t opcode_data, cpu_t* cpu,
 
       const uint16_t r16_val = *get_r16_ptr(opcode_data.YY, cpu);
       cpu->regs.hl.reg += r16_val;
-
-      update_pc(OTHER, cpu);
       break;
     }
     default: {
@@ -377,8 +407,6 @@ static bool handle_block0_3bit_opcodes(opcode_t opcode_data, cpu_t* cpu,
 
       uint8_t* r8_ptr = get_r8_ptr(opcode_data.YYZ, cpu);
       (*r8_ptr)++;
-
-      update_pc(OTHER, cpu);
       break;
     }
     case 0b101: {  // dec r8
@@ -388,8 +416,6 @@ static bool handle_block0_3bit_opcodes(opcode_t opcode_data, cpu_t* cpu,
 
       uint8_t* r8_ptr = get_r8_ptr(opcode_data.YYZ, cpu);
       (*r8_ptr)--;
-
-      update_pc(OTHER, cpu);
       break;
     }
     case 0b110: {  // ld r8, imm8
@@ -400,8 +426,6 @@ static bool handle_block0_3bit_opcodes(opcode_t opcode_data, cpu_t* cpu,
 
       uint8_t* r8 = get_r8_ptr(opcode_data.YYZ, cpu);
       *r8 = imm8;
-
-      update_pc(IMM8, cpu);
       break;
     }
     default: {
@@ -413,17 +437,15 @@ static bool handle_block0_3bit_opcodes(opcode_t opcode_data, cpu_t* cpu,
 }
 
 // Handles opcodes uniquely identified by all 8 bits in block 0
-static bool handle_block0_8bit_opcodes(uint8_t opcode, cpu_t* cpu, bool debug) {
+static bool handle_block0_8bit_opcodes(uint8_t opcode, bool debug) {
   switch (opcode) {
-    case 0b00000000: {  // nop
+    case 0x0: {  // nop
       if (debug) {
         printf("nop");
       }
-
-      update_pc(OTHER, cpu);
       break;
     }
-    case 0b00001111: {  // rlca
+    case 0x07: {  // rlca
       // ! Incomplete
     }
     default: {
@@ -437,20 +459,18 @@ static bool handle_block0_8bit_opcodes(uint8_t opcode, cpu_t* cpu, bool debug) {
 // Interprets block zero instructions. Updates the PC accordingly
 static void do_block0_insns(const opcode_t opcode_data, cpu_t* cpu,
                             bool debug) {
-  if (handle_block0_8bit_opcodes(opcode_data.opcode, cpu, debug)) {
+  if (handle_block0_8bit_opcodes(opcode_data.opcode, debug)) {
     return;
-  }
-  if (handle_block0_4bit_opcodes(opcode_data, cpu, debug)) {
+  } else if (handle_block0_4bit_opcodes(opcode_data, cpu, debug)) {
     return;
-  }
-  if (handle_block0_3bit_opcodes(opcode_data, cpu, debug)) {
+  } else if (handle_block0_3bit_opcodes(opcode_data, cpu, debug)) {
     return;
   }
 
-  PERRORF("Could not identify last 4 bits %X", opcode_data.ZZZZ);
-  exit(EXIT_FAILURE);
-
-  printf("\n");
+  // Add newline for debug prints
+  if (debug) {
+    printf("\n");
+  }
 }
 
 /**
@@ -477,8 +497,10 @@ void perform_cycle(cpu_t* cpu, bool debug) {
       break;
     case 2:
       break;
-    default:
-      PERRORF("Could not identify instruction block XX = 0x%4X\n", XX);
-      exit(EXIT_FAILURE);
+    default:  // Do NOP instruction if instruction is unrecognized
+      update_pc(0, cpu);
+      return;
   }
+
+  update_pc(opcode, cpu);
 }
