@@ -64,8 +64,7 @@ typedef struct {
   uint8_t oam[WRAM_SIZE];
   uint8_t io_regs[IO_REGS_SIZE];
   uint8_t hram[HRAM_SIZE];
-  uint8_t ie;       // Interrupt enable register
-  uint64_t cycles;  // Number of t-cycles
+  uint8_t ie;  // Interrupt enable register
 } cpu_mem_t;
 
 /**
@@ -74,6 +73,7 @@ typedef struct {
 typedef struct {
   cpu_regs_t regs;  // Registers
   cpu_mem_t mem;    // Memory regions
+  uint64_t cycles;  // Number of t-cycles
 } cpu_t;
 
 /**

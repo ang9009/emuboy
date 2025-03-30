@@ -14,6 +14,71 @@ typedef struct {
   uint8_t ZZZ : 3;  // Last 3 bits
 } opcode_t;
 
+// Taken from https://github.com/deltabeard/gameboy-c
+static const uint8_t OP_CYCLES[0x100] = {
+    //   0  1  2  3  4  5  6  7  8  9  A  B  C  D  E  F
+    4,  12, 8,  8,  4,  4,  8,  4,  20, 8, 8,  8, 4,  4,  8, 4,   // 0x00
+    4,  12, 8,  8,  4,  4,  8,  4,  8,  8, 8,  8, 4,  4,  8, 4,   // 0x10
+    8,  12, 8,  8,  4,  4,  8,  4,  8,  8, 8,  8, 4,  4,  8, 4,   // 0x20
+    8,  12, 8,  8,  12, 12, 12, 4,  8,  8, 8,  8, 4,  4,  8, 4,   // 0x30
+    4,  4,  4,  4,  4,  4,  8,  4,  4,  4, 4,  4, 4,  4,  8, 4,   // 0x40
+    4,  4,  4,  4,  4,  4,  8,  4,  4,  4, 4,  4, 4,  4,  8, 4,   // 0x50
+    4,  4,  4,  4,  4,  4,  8,  4,  4,  4, 4,  4, 4,  4,  8, 4,   // 0x60
+    8,  8,  8,  8,  8,  8,  4,  8,  4,  4, 4,  4, 4,  4,  8, 4,   // 0x70
+    4,  4,  4,  4,  4,  4,  8,  4,  4,  4, 4,  4, 4,  4,  8, 4,   // 0x80
+    4,  4,  4,  4,  4,  4,  8,  4,  4,  4, 4,  4, 4,  4,  8, 4,   // 0x90
+    4,  4,  4,  4,  4,  4,  8,  4,  4,  4, 4,  4, 4,  4,  8, 4,   // 0xA0
+    4,  4,  4,  4,  4,  4,  8,  4,  4,  4, 4,  4, 4,  4,  8, 4,   // 0xB0
+    8,  12, 12, 12, 12, 16, 8,  32, 8,  8, 12, 8, 12, 12, 8, 32,  // 0xC0
+    8,  12, 12, 0,  12, 16, 8,  32, 8,  8, 12, 0, 12, 0,  8, 32,  // 0xD0
+    12, 12, 8,  0,  0,  16, 8,  32, 16, 4, 16, 0, 0,  0,  8, 32,  // 0xE0
+    12, 12, 8,  4,  0,  16, 8,  32, 12, 8, 16, 4, 0,  0,  8, 32   // 0xF0
+};
+
+// Returns the number of t-cycles an instruction takes if it prefixed by 0xCB
+static uint8_t get_prefixed_insn_cycles(uint8_t opcode) {
+  switch (opcode) {
+    case 0x06:
+    case 0x16:
+    case 0x26:
+    case 0x36:
+    case 0x86:
+    case 0x96:
+    case 0xA6:
+    case 0xB6:
+    case 0xC6:
+    case 0xD6:
+    case 0xE6:
+    case 0xF6:
+    case 0x0E:
+    case 0x1E:
+    case 0x2E:
+    case 0x3E:
+    case 0x8E:
+    case 0x9E:
+    case 0xAE:
+    case 0xBE:
+    case 0xCE:
+    case 0xDE:
+    case 0xEE:
+    case 0xFE:
+      return 16;
+
+    case 0x46:
+    case 0x56:
+    case 0x66:
+    case 0x76:
+    case 0x4E:
+    case 0x5E:
+    case 0x6E:
+    case 0x7E:
+      return 12;
+
+    default:
+      return 8;
+  }
+}
+
 // Returns the total length of the instruction given the opcode
 static uint8_t get_insn_length(uint8_t opcode) {
   switch (opcode) {
@@ -63,7 +128,7 @@ static uint8_t get_insn_length(uint8_t opcode) {
     case 0xDE:
     case 0xEE:
     case 0xFE:
-    case 0xCB:
+    case 0xCB:  // All 0xCB prefixed insns are 2 bytes long
       return 2;
 
     // 1-byte instructions
@@ -94,10 +159,14 @@ static uint8_t* get_ram_ptr(const uint16_t addr, cpu_mem_t* mem) {
   exit(EXIT_FAILURE);
 }
 
-// Updates the PC by the length of the current instruction
-void update_pc(uint8_t opcode, cpu_t* cpu) {
-  int inc = get_insn_length(opcode);
-  cpu->regs.pc += inc;
+// Updates the PC by the length of the current instruction, and updates the cycle count
+void update_cpu(uint8_t opcode, cpu_t* cpu) {
+  const uint8_t pc_inc = get_insn_length(opcode);
+  const uint8_t cycle_inc =
+      opcode == 0xCB ? OP_CYCLES[opcode] : get_prefixed_insn_cycles(opcode);
+
+  cpu->regs.pc += pc_inc;
+  cpu->cycles += cycle_inc;
 }
 
 // Reads 8 bit values from ROM/RAM.
@@ -497,10 +566,10 @@ void perform_cycle(cpu_t* cpu, bool debug) {
       break;
     case 2:
       break;
-    default:  // Do NOP instruction if instruction is unrecognized
-      update_pc(0, cpu);
+    default:
+      update_cpu(0, cpu);
       return;
   }
 
-  update_pc(opcode, cpu);
+  update_cpu(opcode, cpu);
 }
