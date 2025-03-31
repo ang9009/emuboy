@@ -3,6 +3,8 @@
         "stdio.h": "c",
         "utils.h": "c",
         "cpu.h": "c",
-        "stdbool.h": "c"
+        "stdbool.h": "c",
+        "errno.h": "c",
+        "string.h": "c"
     }
 }

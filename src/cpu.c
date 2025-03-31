@@ -79,8 +79,11 @@ static uint8_t get_prefixed_insn_cycles(uint8_t opcode) {
   }
 }
 
-// Returns the total length of the instruction given the opcode
-static uint8_t get_insn_length(uint8_t opcode) {
+/**
+ * Returns the total length of the instruction given the opcode. This does not handle 0xCB 
+ * prefixed instructions.
+ */
+static uint8_t get_unprefixed_insn_length(uint8_t opcode) {
   switch (opcode) {
     // 3-byte instructions
     case 0x01:  // LD BC, d16
@@ -128,7 +131,6 @@ static uint8_t get_insn_length(uint8_t opcode) {
     case 0xDE:
     case 0xEE:
     case 0xFE:
-    case 0xCB:  // All 0xCB prefixed insns are 2 bytes long
       return 2;
 
     // 1-byte instructions
@@ -159,16 +161,6 @@ static uint8_t* get_ram_ptr(const uint16_t addr, cpu_mem_t* mem) {
   exit(EXIT_FAILURE);
 }
 
-// Updates the PC by the length of the current instruction, and updates the cycle count
-void update_cpu(uint8_t opcode, cpu_t* cpu) {
-  const uint8_t pc_inc = get_insn_length(opcode);
-  const uint8_t cycle_inc =
-      opcode == 0xCB ? OP_CYCLES[opcode] : get_prefixed_insn_cycles(opcode);
-
-  cpu->regs.pc += pc_inc;
-  cpu->cycles += cycle_inc;
-}
-
 // Reads 8 bit values from ROM/RAM.
 static uint8_t read_mem(const uint16_t addr, cpu_mem_t mem) {
   if (addr <= 0x3FFF) {
@@ -179,6 +171,19 @@ static uint8_t read_mem(const uint16_t addr, cpu_mem_t mem) {
 
   // This will exit if address is invalid
   return *get_ram_ptr(addr, &mem);
+}
+
+// Updates the PC by the length of the current instruction, and updates the cycle count
+void update_cpu(uint8_t opcode, cpu_t* cpu) {
+  if (opcode == 0xCB) {
+    uint8_t prefixed_opcode = read_mem(cpu->regs.pc + 1, cpu->mem);
+    cpu->regs.pc += 2;
+    cpu->cycles += get_prefixed_insn_cycles(prefixed_opcode);
+  } else {
+    uint8_t pc_inc = get_unprefixed_insn_length(opcode);
+    cpu->regs.pc += pc_inc;
+    cpu->cycles += OP_CYCLES[opcode];
+  }
 }
 
 // Reads the cart into memory banks and the cart member
@@ -227,17 +232,19 @@ void read_cart_into_mem(char* file_path, cpu_mem_t* cpu_mem) {
   }
 }
 
-void init_cpu(cpu_t* cpu, char* cart_file) {
-  cpu = calloc(1, sizeof(cpu_t));
+// Allocates memory for and sets up the cpu struct at the given pointer
+void init_cpu(cpu_t** cpu, char* cart_file) {
+  *cpu = calloc(1, sizeof(cpu_t));
+  cpu_t* cpu_ptr = *cpu;
 
   // Memory
-  read_cart_into_mem(cart_file, &cpu->mem);
-  const uint8_t eram_type = cpu->mem.cart[0x0149];
+  read_cart_into_mem(cart_file, &cpu_ptr->mem);
+  const uint8_t eram_type = cpu_ptr->mem.cart[0x0149];
   size_t eram_size = 0;
 
   switch (eram_type) {
     case 0x0:
-      cpu->mem.eram = NULL;
+      cpu_ptr->mem.eram = NULL;
       break;
     case 0x2:
       eram_size = 8 * 1000;
@@ -256,11 +263,11 @@ void init_cpu(cpu_t* cpu, char* cart_file) {
       exit(EXIT_FAILURE);
   }
   if (eram_size != 0) {
-    cpu->mem.eram = malloc(eram_size);  // Placeholder lol
+    cpu_ptr->mem.eram = malloc(eram_size);  // Placeholder lol
   }
 
   // Registers
-  cpu->regs.pc = 0x0100;
+  cpu_ptr->regs.pc = 0x0100;
 }
 
 void cleanup_cpu(cpu_t* cpu) {
@@ -268,6 +275,7 @@ void cleanup_cpu(cpu_t* cpu) {
     free(cpu->mem.eram);
   }
 
+  free(cpu->mem.cart);
   free(cpu);
 }
 
@@ -390,18 +398,15 @@ static bool handle_block0_4bit_opcodes(opcode_t opcode_data, cpu_t* cpu,
     case 0b0001: {  // ld r16, imm16
       uint16_t* reg_ptr = get_r16_ptr(opcode_data.YY, cpu);
       const uint16_t imm16 = get_imm16(cpu->regs.pc, cpu->mem);
-      if (debug) {
-        printf("ld r16 (%d) 0x%04X", opcode_data.YY, imm16);
-      }
+      DBG_PRINT(debug, "ld r16 (%d) 0x%04X", opcode_data.YY, imm16);
 
       *reg_ptr = imm16;
       break;
     }
     case 0b0010: {  // ld [r16mem], a
       r16mem_ptr_t reg_data = get_r16mem_ptr(opcode_data.YY, cpu);
-      if (debug) {
-        printf("ld [0x%04X], 0x%02X", *reg_data.r16mem_ptr, cpu->regs.af.a);
-      }
+      DBG_PRINT(debug, "ld [0x%04X], 0x%02X", *reg_data.r16mem_ptr,
+                cpu->regs.af.a);
       *reg_data.r16mem_ptr = cpu->regs.af.a;
       *reg_data.r16mem_ptr += reg_data.post_op;
       break;
@@ -409,46 +414,31 @@ static bool handle_block0_4bit_opcodes(opcode_t opcode_data, cpu_t* cpu,
     case 0b1010: {  // ld a, [r16mem]
       const uint16_t addr = get_r16mem_val(opcode_data.YY, cpu);
       const uint8_t val = read_mem(addr, cpu->mem);
-      if (debug) {
-        printf("ld a, [0x%04X]", addr);
-      }
-
+      DBG_PRINT(debug, "ld a, [0x%04X]", addr);
       cpu->regs.af.a = val;
       break;
     }
     case 0b1000: {  // ld [imm16], sp
       const uint16_t addr = get_imm16(cpu->regs.pc, cpu->mem);
       uint8_t* ram_ptr = get_ram_ptr(addr, &cpu->mem);
-      if (debug) {
-        printf("ld [0x%04X], 0x%04X", addr, cpu->regs.sp);
-      }
-
+      DBG_PRINT(debug, "ld [0x%04X], 0x%04X", addr, cpu->regs.sp);
       *ram_ptr = cpu->regs.sp;
       break;
     }
     case 0b0011: {  // inc r16
-      if (debug) {
-        printf("inc r16 (%d)", opcode_data.YY);
-      }
-
+      DBG_PRINT(debug, "inc r16 (%d)", opcode_data.YY);
       uint16_t* r16_ptr = get_r16_ptr(opcode_data.YY, cpu);
       *r16_ptr += 1;
       break;
     }
     case 0b1011: {  // dec r16
-      if (debug) {
-        printf("dec r16 (%d)", opcode_data.YY);
-      }
-
+      DBG_PRINT(debug, "dec r16 (%d)", opcode_data.YY);
       uint16_t* r16_ptr = get_r16_ptr(opcode_data.YY, cpu);
       *r16_ptr -= 1;
       break;
     }
     case 0b1001: {  // add hl, r16
-      if (debug) {
-        printf("add hl, r16 (0x%02X)", opcode_data.YY);
-      }
-
+      DBG_PRINT(debug, "add hl, r16 (0x%02X)", opcode_data.YY);
       const uint16_t r16_val = *get_r16_ptr(opcode_data.YY, cpu);
       cpu->regs.hl.reg += r16_val;
       break;
@@ -470,29 +460,20 @@ static bool handle_block0_3bit_opcodes(opcode_t opcode_data, cpu_t* cpu,
                                        bool debug) {
   switch (opcode_data.ZZZ) {
     case 0b100: {  // inc r8
-      if (debug) {
-        printf("inc r8 (%d)", opcode_data.YYZ);
-      }
-
+      DBG_PRINT(debug, "inc r8 (%d)", opcode_data.YYZ);
       uint8_t* r8_ptr = get_r8_ptr(opcode_data.YYZ, cpu);
       (*r8_ptr)++;
       break;
     }
     case 0b101: {  // dec r8
-      if (debug) {
-        printf("dec r8 (%d)", opcode_data.YYZ);
-      }
-
+      DBG_PRINT(debug, "dec r8 (%d)", opcode_data.YYZ);
       uint8_t* r8_ptr = get_r8_ptr(opcode_data.YYZ, cpu);
       (*r8_ptr)--;
       break;
     }
     case 0b110: {  // ld r8, imm8
       const uint8_t imm8 = get_imm8(cpu->regs.pc, cpu->mem);
-      if (debug) {
-        printf("ld r8 (%d), 0x%02X", opcode_data.YYZ, imm8);
-      }
-
+      DBG_PRINT(debug, "ld r8 (%d), 0x%02X", opcode_data.YYZ, imm8);
       uint8_t* r8 = get_r8_ptr(opcode_data.YYZ, cpu);
       *r8 = imm8;
       break;
@@ -506,16 +487,28 @@ static bool handle_block0_3bit_opcodes(opcode_t opcode_data, cpu_t* cpu,
 }
 
 // Handles opcodes uniquely identified by all 8 bits in block 0
-static bool handle_block0_8bit_opcodes(uint8_t opcode, bool debug) {
+static bool handle_block0_8bit_opcodes(uint8_t opcode, bool debug, cpu_t* cpu) {
   switch (opcode) {
     case 0x0: {  // nop
-      if (debug) {
-        printf("nop");
-      }
+      DBG_PRINT(debug, "nop");
       break;
     }
-    case 0x07: {  // rlca
-      // ! Incomplete
+    case 0x07:    // rlca
+    case 0x0F: {  // rrca
+      uint8_t bit;
+      if (opcode == 0x07) {
+        DBG_PRINT(debug, "rlca");
+        bit = (cpu->regs.af.a >> 7) & 0b1;  // Get MSB
+        cpu->regs.af.a <<= 1;
+      } else {
+        DBG_PRINT(debug, "rrca");
+        bit = (cpu->regs.af.a) & 0b1;  // Get LSB
+        cpu->regs.af.a >>= 1;
+      }
+
+      flags_reg_t* flags = &cpu->regs.af.f;
+      flags->c = bit;
+      break;
     }
     default: {
       return false;
@@ -528,17 +521,12 @@ static bool handle_block0_8bit_opcodes(uint8_t opcode, bool debug) {
 // Interprets block zero instructions. Updates the PC accordingly
 static void do_block0_insns(const opcode_t opcode_data, cpu_t* cpu,
                             bool debug) {
-  if (handle_block0_8bit_opcodes(opcode_data.opcode, debug)) {
+  if (handle_block0_8bit_opcodes(opcode_data.opcode, debug, cpu)) {
     return;
   } else if (handle_block0_4bit_opcodes(opcode_data, cpu, debug)) {
     return;
   } else if (handle_block0_3bit_opcodes(opcode_data, cpu, debug)) {
     return;
-  }
-
-  // Add newline for debug prints
-  if (debug) {
-    printf("\n");
   }
 }
 
@@ -557,6 +545,7 @@ void perform_cycle(cpu_t* cpu, bool debug) {
       .ZZZZ = ZZZZ,
       .YYZ = (YY << 1) | ((opcode >> 3) & 0b1),
       .ZZZ = ZZZZ >> 1,
+      .opcode = opcode,
   };
 
   // Each helper increments the PC

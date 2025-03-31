@@ -14,6 +14,24 @@
 /**
  * CPU registers
  */
+#define REGISTER_STRUCT(x, y) \
+  typedef union {             \
+    struct {                  \
+      uint8_t x;              \
+      uint8_t y;              \
+    };                        \
+    uint16_t reg;             \
+  } x##y##_reg_t;
+
+#define REGISTERS       \
+  REGISTER_STRUCT(b, c) \
+  REGISTER_STRUCT(d, e) \
+  REGISTER_STRUCT(h, l)
+
+REGISTERS
+#undef REGISTER_STRUCT
+#undef REGISTERS
+
 typedef union {
   struct {
     uint8_t : 4;  // Upper 4 bits ignored
@@ -25,24 +43,13 @@ typedef union {
   uint8_t reg;
 } flags_reg_t;
 
-#define REGISTER_STRUCT(x, y) \
-  typedef union {             \
-    struct {                  \
-      uint8_t x;              \
-      uint8_t y;              \
-    };                        \
-    uint16_t reg;             \
-  } x##y##_reg_t;
-
-#define REGISTERS       \
-  REGISTER_STRUCT(a, f) \
-  REGISTER_STRUCT(b, c) \
-  REGISTER_STRUCT(d, e) \
-  REGISTER_STRUCT(h, l)
-
-REGISTERS
-#undef REGISTER_STRUCT
-#undef REGISTERS
+typedef union {
+  struct {
+    uint8_t a;
+    flags_reg_t f;
+  };
+  uint16_t reg;
+} af_reg_t;
 
 typedef struct {
   af_reg_t af;
@@ -83,8 +90,8 @@ typedef struct {
 //  Reads a cartridge file into ROM
 void read_file_into_rom(char* file_path, cpu_t* cpu);
 
-// Initializes the CPU
-void init_cpu(cpu_t* cpu, char* cart_file);
+// Allocates memory for and sets up the cpu struct at the given pointer
+void init_cpu(cpu_t** cpu, char* cart_file);
 
 // Frees memory related to the CPU
 void cleanup_cpu(cpu_t* cpu);
