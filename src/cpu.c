@@ -161,6 +161,11 @@ static uint8_t* get_ram_ptr(const uint16_t addr, cpu_mem_t* mem) {
   exit(EXIT_FAILURE);
 }
 
+// Returns a pointer to the flags struct of the given cpu
+static flags_reg_t* get_flags_ptr(cpu_t* cpu) {
+  return &cpu->regs.af.f;
+}
+
 // Reads 8 bit values from ROM/RAM.
 static uint8_t read_mem(const uint16_t addr, cpu_mem_t mem) {
   if (addr <= 0x3FFF) {
@@ -458,17 +463,30 @@ static uint8_t get_imm8(const uint16_t op_addr, const cpu_mem_t mem) {
 
 static bool handle_block0_3bit_opcodes(opcode_t opcode_data, cpu_t* cpu,
                                        bool debug) {
+  flags_reg_t* flags = get_flags_ptr(cpu);
+
   switch (opcode_data.ZZZ) {
     case 0b100: {  // inc r8
       DBG_PRINT(debug, "inc r8 (%d)", opcode_data.YYZ);
       uint8_t* r8_ptr = get_r8_ptr(opcode_data.YYZ, cpu);
+      if ((*r8_ptr & 0xF) == 0xF) {  // If lower nibble is 0xF
+        flags->h = 1;                // There will be a carry
+      }
+
       (*r8_ptr)++;
+
+      flags->z = (*r8_ptr == 0) ? 1 : 0;
+      flags->n = 0;
       break;
     }
     case 0b101: {  // dec r8
       DBG_PRINT(debug, "dec r8 (%d)", opcode_data.YYZ);
       uint8_t* r8_ptr = get_r8_ptr(opcode_data.YYZ, cpu);
       (*r8_ptr)--;
+
+      // ! Flags not updated
+      flags->z = *r8_ptr;
+
       break;
     }
     case 0b110: {  // ld r8, imm8
@@ -495,19 +513,74 @@ static bool handle_block0_8bit_opcodes(uint8_t opcode, bool debug, cpu_t* cpu) {
     }
     case 0x07:    // rlca
     case 0x0F: {  // rrca
-      uint8_t bit;
+      uint8_t carry_bit;
       if (opcode == 0x07) {
         DBG_PRINT(debug, "rlca");
-        bit = (cpu->regs.af.a >> 7) & 0b1;  // Get MSB
+        carry_bit = (cpu->regs.af.a >> 7) & 0b1;  // Get MSB
         cpu->regs.af.a <<= 1;
       } else {
         DBG_PRINT(debug, "rrca");
-        bit = (cpu->regs.af.a) & 0b1;  // Get LSB
+        carry_bit = (cpu->regs.af.a) & 0b1;  // Get LSB
         cpu->regs.af.a >>= 1;
       }
 
-      flags_reg_t* flags = &cpu->regs.af.f;
-      flags->c = bit;
+      flags_reg_t* flags = get_flags_ptr(cpu);
+      flags->z = 0;
+      flags->n = 0;
+      flags->h = 0;
+      flags->c = carry_bit;
+      break;
+    }
+    case 0x17:    // rla
+    case 0x1F: {  // rra
+      uint8_t carry_bit;
+      flags_reg_t* flags = get_flags_ptr(cpu);
+
+      if (opcode == 0x17) {
+        DBG_PRINT(debug, "rla");
+        carry_bit = (cpu->regs.af.a >> 7) & 0b1;  // Get MSB
+        cpu->regs.af.a <<= 1;
+        cpu->regs.af.a |= flags->c;  // OR with LSB (empty spot)
+      } else {
+        DBG_PRINT(debug, "rra");
+        carry_bit = (cpu->regs.af.a) & 0b1;  // Get LSB
+        cpu->regs.af.a >>= 1;
+        cpu->regs.af.a |= (flags->c << 7);  // OR with MSB (empty spot)
+      }
+
+      // Update flags
+      flags->z = 0;
+      flags->n = 0;
+      flags->h = 0;
+      flags->c = carry_bit;
+      break;
+    }
+    case 0x27: {  // daa
+      flags_reg_t* flags = get_flags_ptr(cpu);
+      uint8_t adj = 0;
+      if (flags->n) {
+        if (flags->h) {
+          adj += 0x6;
+        }
+        if (flags->c) {
+          adj += 0x60;
+        }
+
+        cpu->regs.af.a -= adj;
+      } else {
+        if (flags->h || (cpu->regs.af.a & 0xF) > 0x9) {
+          adj += 0x6;
+        }
+        if (flags->c || cpu->regs.af.a > 0x99) {
+          adj += 0x60;
+          flags->c = 1;
+        }
+
+        cpu->regs.af.a += adj;
+      }
+
+      flags->z = (cpu->regs.af.a) == 0 ? 1 : 0;
+      flags->h = 0;
       break;
     }
     default: {
