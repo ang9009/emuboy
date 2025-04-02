@@ -445,7 +445,15 @@ static bool handle_block0_4bit_opcodes(opcode_t opcode_data, cpu_t* cpu,
     case 0b1001: {  // add hl, r16
       DBG_PRINT(debug, "add hl, r16 (0x%02X)", opcode_data.YY);
       const uint16_t r16_val = *get_r16_ptr(opcode_data.YY, cpu);
+      const bool set_h =
+          ((cpu->regs.hl.reg & 0xFFF) + (r16_val & 0xFFF)) > 0xFFF;
+      const bool set_c = cpu->regs.hl.reg + r16_val > 0xFFFF;
       cpu->regs.hl.reg += r16_val;
+
+      flags_reg_t* flags = &cpu->regs.af.f;
+      flags->n = 0;
+      flags->h = (int)set_h;
+      flags->c = (int)set_c;
       break;
     }
     default: {
@@ -469,24 +477,25 @@ static bool handle_block0_3bit_opcodes(opcode_t opcode_data, cpu_t* cpu,
     case 0b100: {  // inc r8
       DBG_PRINT(debug, "inc r8 (%d)", opcode_data.YYZ);
       uint8_t* r8_ptr = get_r8_ptr(opcode_data.YYZ, cpu);
-      if ((*r8_ptr & 0xF) == 0xF) {  // If lower nibble is 0xF
-        flags->h = 1;                // There will be a carry
-      }
+      bool set_h = (*r8_ptr & 0xF) ==
+                   0xF;  // If lower nibble is 0xF, there will be a carry
 
       (*r8_ptr)++;
 
       flags->z = (*r8_ptr == 0) ? 1 : 0;
       flags->n = 0;
+      flags->h = (int)set_h;
       break;
     }
     case 0b101: {  // dec r8
       DBG_PRINT(debug, "dec r8 (%d)", opcode_data.YYZ);
       uint8_t* r8_ptr = get_r8_ptr(opcode_data.YYZ, cpu);
+      bool set_h = (*r8_ptr) & 0xF == 0;
       (*r8_ptr)--;
 
-      // ! Flags not updated
-      flags->z = *r8_ptr;
-
+      flags->z = *r8_ptr == 0 ? 1 : 0;
+      flags->n = 1;
+      flags->h = (int)set_h;
       break;
     }
     case 0b110: {  // ld r8, imm8
@@ -494,6 +503,7 @@ static bool handle_block0_3bit_opcodes(opcode_t opcode_data, cpu_t* cpu,
       DBG_PRINT(debug, "ld r8 (%d), 0x%02X", opcode_data.YYZ, imm8);
       uint8_t* r8 = get_r8_ptr(opcode_data.YYZ, cpu);
       *r8 = imm8;
+
       break;
     }
     default: {
