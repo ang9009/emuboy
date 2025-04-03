@@ -97,6 +97,6 @@ void init_cpu(cpu_t** cpu, char* cart_file);
 void cleanup_cpu(cpu_t* cpu);
 
 // Performs 1 iteration of the fetch-decode-execute cycle
-void perform_cycle(cpu_t* cpu, bool debug);
+void perform_cycle(cpu_t* cpu);
 
 #endif

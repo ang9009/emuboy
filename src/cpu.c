@@ -397,21 +397,19 @@ static uint8_t* get_r8_ptr(const uint8_t YYZ, cpu_t* cpu) {
 }
 
 // Handles block zero instructions identified uniquely by their last 4 bits/nibble.
-static bool handle_block0_4bit_opcodes(opcode_t opcode_data, cpu_t* cpu,
-                                       bool debug) {
+static bool handle_block0_4bit_opcodes(opcode_t opcode_data, cpu_t* cpu) {
   switch (opcode_data.ZZZZ) {
     case 0b0001: {  // ld r16, imm16
       uint16_t* reg_ptr = get_r16_ptr(opcode_data.YY, cpu);
       const uint16_t imm16 = get_imm16(cpu->regs.pc, cpu->mem);
-      DBG_PRINT(debug, "ld r16 (%d) 0x%04X", opcode_data.YY, imm16);
+      DBG_PRINT("ld r16 (%d) 0x%04X", opcode_data.YY, imm16);
 
       *reg_ptr = imm16;
       break;
     }
     case 0b0010: {  // ld [r16mem], a
       r16mem_ptr_t reg_data = get_r16mem_ptr(opcode_data.YY, cpu);
-      DBG_PRINT(debug, "ld [0x%04X], 0x%02X", *reg_data.r16mem_ptr,
-                cpu->regs.af.a);
+      DBG_PRINT("ld [0x%04X], 0x%02X", *reg_data.r16mem_ptr, cpu->regs.af.a);
       *reg_data.r16mem_ptr = cpu->regs.af.a;
       *reg_data.r16mem_ptr += reg_data.post_op;
       break;
@@ -419,31 +417,31 @@ static bool handle_block0_4bit_opcodes(opcode_t opcode_data, cpu_t* cpu,
     case 0b1010: {  // ld a, [r16mem]
       const uint16_t addr = get_r16mem_val(opcode_data.YY, cpu);
       const uint8_t val = read_mem(addr, cpu->mem);
-      DBG_PRINT(debug, "ld a, [0x%04X]", addr);
+      DBG_PRINT("ld a, [0x%04X]", addr);
       cpu->regs.af.a = val;
       break;
     }
     case 0b1000: {  // ld [imm16], sp
       const uint16_t addr = get_imm16(cpu->regs.pc, cpu->mem);
       uint8_t* ram_ptr = get_ram_ptr(addr, &cpu->mem);
-      DBG_PRINT(debug, "ld [0x%04X], 0x%04X", addr, cpu->regs.sp);
+      DBG_PRINT("ld [0x%04X], 0x%04X", addr, cpu->regs.sp);
       *ram_ptr = cpu->regs.sp;
       break;
     }
     case 0b0011: {  // inc r16
-      DBG_PRINT(debug, "inc r16 (%d)", opcode_data.YY);
+      DBG_PRINT("inc r16 (%d)", opcode_data.YY);
       uint16_t* r16_ptr = get_r16_ptr(opcode_data.YY, cpu);
       *r16_ptr += 1;
       break;
     }
     case 0b1011: {  // dec r16
-      DBG_PRINT(debug, "dec r16 (%d)", opcode_data.YY);
+      DBG_PRINT("dec r16 (%d)", opcode_data.YY);
       uint16_t* r16_ptr = get_r16_ptr(opcode_data.YY, cpu);
       *r16_ptr -= 1;
       break;
     }
     case 0b1001: {  // add hl, r16
-      DBG_PRINT(debug, "add hl, r16 (0x%02X)", opcode_data.YY);
+      DBG_PRINT("add hl, r16 (0x%02X)", opcode_data.YY);
       const uint16_t r16_val = *get_r16_ptr(opcode_data.YY, cpu);
       const bool set_h =
           ((cpu->regs.hl.reg & 0xFFF) + (r16_val & 0xFFF)) > 0xFFF;
@@ -465,17 +463,37 @@ static bool handle_block0_4bit_opcodes(opcode_t opcode_data, cpu_t* cpu,
 }
 
 // Gets the immediate 8 bit value after the opcode at the given address
-static uint8_t get_imm8(const uint16_t op_addr, const cpu_mem_t mem) {
+static int8_t get_imm8(const uint16_t op_addr, const cpu_mem_t mem) {
   return read_mem(op_addr + 1, mem);
 }
 
-static bool handle_block0_3bit_opcodes(opcode_t opcode_data, cpu_t* cpu,
-                                       bool debug) {
+// Checks if the given condition is met. cond should not be more than 2 bits wide.
+static bool is_cond_met(const uint8_t cond, const cpu_t cpu) {
+  flags_reg_t flags = cpu.regs.af.f;
+  switch (cond) {
+    case 0: {  // nz
+      return flags.z == 0;
+    }
+    case 1: {  // z
+      return flags.z == 1;
+    }
+    case 2: {  // nc
+      return flags.c == 0;
+    }
+    case 3: {  // c
+      return flags.c == 1;
+    }
+    default:  // Should not happen (unless cond is more than 2 bits wide)
+      exit(EXIT_FAILURE);
+  }
+}
+
+static bool handle_block0_3bit_opcodes(opcode_t opcode_data, cpu_t* cpu) {
   flags_reg_t* flags = get_flags_ptr(cpu);
 
   switch (opcode_data.ZZZ) {
     case 0b100: {  // inc r8
-      DBG_PRINT(debug, "inc r8 (%d)", opcode_data.YYZ);
+      DBG_PRINT("inc r8 (%d)", opcode_data.YYZ);
       uint8_t* r8_ptr = get_r8_ptr(opcode_data.YYZ, cpu);
       bool set_h = (*r8_ptr & 0xF) ==
                    0xF;  // If lower nibble is 0xF, there will be a carry
@@ -488,22 +506,30 @@ static bool handle_block0_3bit_opcodes(opcode_t opcode_data, cpu_t* cpu,
       break;
     }
     case 0b101: {  // dec r8
-      DBG_PRINT(debug, "dec r8 (%d)", opcode_data.YYZ);
+      DBG_PRINT("dec r8 (%d)", opcode_data.YYZ);
       uint8_t* r8_ptr = get_r8_ptr(opcode_data.YYZ, cpu);
-      bool set_h = (*r8_ptr) & 0xF == 0;
+      bool set_h = ((*r8_ptr) & 0xF) == 0;
       (*r8_ptr)--;
 
-      flags->z = *r8_ptr == 0 ? 1 : 0;
+      flags->z = (*r8_ptr == 0) ? 1 : 0;
       flags->n = 1;
       flags->h = (int)set_h;
       break;
     }
     case 0b110: {  // ld r8, imm8
       const uint8_t imm8 = get_imm8(cpu->regs.pc, cpu->mem);
-      DBG_PRINT(debug, "ld r8 (%d), 0x%02X", opcode_data.YYZ, imm8);
+      DBG_PRINT("ld r8 (%d), 0x%02X", opcode_data.YYZ, imm8);
       uint8_t* r8 = get_r8_ptr(opcode_data.YYZ, cpu);
       *r8 = imm8;
 
+      break;
+    }
+    case 0b000: {  // jr cond, imm8
+      const uint8_t cond = (opcode_data.opcode >> 3) & 0b11;
+      if (is_cond_met(cond, *cpu)) {
+        const int8_t imm8 = get_imm8(cpu->regs.pc, cpu->mem);
+        cpu->regs.pc += imm8;
+      }
       break;
     }
     default: {
@@ -515,26 +541,27 @@ static bool handle_block0_3bit_opcodes(opcode_t opcode_data, cpu_t* cpu,
 }
 
 // Handles opcodes uniquely identified by all 8 bits in block 0
-static bool handle_block0_8bit_opcodes(uint8_t opcode, bool debug, cpu_t* cpu) {
+static bool handle_block0_8bit_opcodes(uint8_t opcode, cpu_t* cpu) {
+  flags_reg_t* flags = get_flags_ptr(cpu);
+
   switch (opcode) {
     case 0x0: {  // nop
-      DBG_PRINT(debug, "nop");
+      DBG_PRINT("nop");
       break;
     }
     case 0x07:    // rlca
     case 0x0F: {  // rrca
       uint8_t carry_bit;
       if (opcode == 0x07) {
-        DBG_PRINT(debug, "rlca");
+        DBG_PRINT("rlca");
         carry_bit = (cpu->regs.af.a >> 7) & 0b1;  // Get MSB
         cpu->regs.af.a <<= 1;
       } else {
-        DBG_PRINT(debug, "rrca");
+        DBG_PRINT("rrca");
         carry_bit = (cpu->regs.af.a) & 0b1;  // Get LSB
         cpu->regs.af.a >>= 1;
       }
 
-      flags_reg_t* flags = get_flags_ptr(cpu);
       flags->z = 0;
       flags->n = 0;
       flags->h = 0;
@@ -544,15 +571,13 @@ static bool handle_block0_8bit_opcodes(uint8_t opcode, bool debug, cpu_t* cpu) {
     case 0x17:    // rla
     case 0x1F: {  // rra
       uint8_t carry_bit;
-      flags_reg_t* flags = get_flags_ptr(cpu);
-
       if (opcode == 0x17) {
-        DBG_PRINT(debug, "rla");
+        DBG_PRINT("rla");
         carry_bit = (cpu->regs.af.a >> 7) & 0b1;  // Get MSB
         cpu->regs.af.a <<= 1;
         cpu->regs.af.a |= flags->c;  // OR with LSB (empty spot)
       } else {
-        DBG_PRINT(debug, "rra");
+        DBG_PRINT("rra");
         carry_bit = (cpu->regs.af.a) & 0b1;  // Get LSB
         cpu->regs.af.a >>= 1;
         cpu->regs.af.a |= (flags->c << 7);  // OR with MSB (empty spot)
@@ -566,7 +591,7 @@ static bool handle_block0_8bit_opcodes(uint8_t opcode, bool debug, cpu_t* cpu) {
       break;
     }
     case 0x27: {  // daa
-      flags_reg_t* flags = get_flags_ptr(cpu);
+      DBG_PRINT("daa");
       uint8_t adj = 0;
       if (flags->n) {
         if (flags->h) {
@@ -593,6 +618,39 @@ static bool handle_block0_8bit_opcodes(uint8_t opcode, bool debug, cpu_t* cpu) {
       flags->h = 0;
       break;
     }
+    case 0x2F: {  // cpl
+      DBG_PRINT("cpl");
+      cpu->regs.af.a = ~cpu->regs.af.a;
+
+      flags->n = 1;
+      flags->h = 1;
+      break;
+    }
+    case 0x37: {  // scf
+      DBG_PRINT("scf");
+      flags->n = 0;
+      flags->h = 0;
+      flags->c = 1;
+      break;
+    }
+    case 0x3F: {  // ccf
+      DBG_PRINT("ccf");
+      flags->n = 0;
+      flags->h = 0;
+      flags->c = ~flags->c;
+      break;
+    }
+    case 0x18: {  // jr imm8
+      const int8_t imm8 = get_imm8(cpu->regs.pc, cpu->mem); // Signed value
+      DBG_PRINT("jr 0x%04X", imm8);
+      cpu->regs.pc += imm8;
+      break;
+    }
+    case 0x10: { // stop
+      DBG_PRINT("stop");
+      // ! wtf? incomplete
+      break;
+    }
     default: {
       return false;
     }
@@ -602,13 +660,12 @@ static bool handle_block0_8bit_opcodes(uint8_t opcode, bool debug, cpu_t* cpu) {
 }
 
 // Interprets block zero instructions. Updates the PC accordingly
-static void do_block0_insns(const opcode_t opcode_data, cpu_t* cpu,
-                            bool debug) {
-  if (handle_block0_8bit_opcodes(opcode_data.opcode, debug, cpu)) {
+static void do_block0_insns(const opcode_t opcode_data, cpu_t* cpu) {
+  if (handle_block0_8bit_opcodes(opcode_data.opcode, cpu)) {
     return;
-  } else if (handle_block0_4bit_opcodes(opcode_data, cpu, debug)) {
+  } else if (handle_block0_4bit_opcodes(opcode_data, cpu)) {
     return;
-  } else if (handle_block0_3bit_opcodes(opcode_data, cpu, debug)) {
+  } else if (handle_block0_3bit_opcodes(opcode_data, cpu)) {
     return;
   }
 }
@@ -616,7 +673,7 @@ static void do_block0_insns(const opcode_t opcode_data, cpu_t* cpu,
 /**
  * Performs 1 cycle of the fetch-decode-execute cycle.
  */
-void perform_cycle(cpu_t* cpu, bool debug) {
+void perform_cycle(cpu_t* cpu) {
   uint8_t opcode = read_mem(cpu->regs.pc, cpu->mem);
 
   // Consider the opcode's bits as XXYYZZZZ
@@ -634,7 +691,7 @@ void perform_cycle(cpu_t* cpu, bool debug) {
   // Each helper increments the PC
   switch (XX) {  // Identify block
     case 1:
-      do_block0_insns(opcode_data, cpu, debug);
+      do_block0_insns(opcode_data, cpu);
       break;
     case 2:
       break;

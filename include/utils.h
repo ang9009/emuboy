@@ -8,11 +8,9 @@
 #define PERRORF(FMT, ...) \
   fprintf(stderr, FMT ": %s\n", ##__VA_ARGS__, strerror(errno))
 
+// Debug prints for instructions
 #ifdef DEBUG
-#define DBG_PRINT(DEBUG, MSG, ...)   \
-  if (debug) {                       \
-    printf(MSG "\n", ##__VA_ARGS__); \
-  }
+#define DBG_PRINT(MSG, ...) printf(MSG "\n", ##__VA_ARGS__);
 #else
 #define DBG_PRINT(MSG, ...) \
   do {                      \
