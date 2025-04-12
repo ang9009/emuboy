@@ -81,6 +81,8 @@ typedef struct {
   cpu_regs_t regs;  // Registers
   cpu_mem_t mem;    // Memory regions
   uint64_t cycles;  // Number of t-cycles
+  bool halt;        // If the cpu should halt/stop
+  bool ime;         // Interrupt master enable flag
 } cpu_t;
 
 /**

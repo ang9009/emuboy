@@ -241,6 +241,7 @@ void read_cart_into_mem(char* file_path, cpu_mem_t* cpu_mem) {
 void init_cpu(cpu_t** cpu, char* cart_file) {
   *cpu = calloc(1, sizeof(cpu_t));
   cpu_t* cpu_ptr = *cpu;
+  cpu_ptr->halt = false;
 
   // Memory
   read_cart_into_mem(cart_file, &cpu_ptr->mem);
@@ -370,9 +371,13 @@ static uint16_t get_imm16(const uint16_t op_addr, const cpu_mem_t mem) {
   return (upper << 8) | lower;
 }
 
-// Returns the associated r8 pointer based on the given placeholder.
-static uint8_t* get_r8_ptr(const uint8_t YYZ, cpu_t* cpu) {
-  switch (YYZ) {
+/**
+ * Returns the associated r8 pointer based on the given placeholder. "bits" should be a 
+ * 3 bit value.
+ * */
+
+static uint8_t* get_r8_ptr(const uint8_t bits, cpu_t* cpu) {
+  switch (bits) {
     case 0:
       return &cpu->regs.bc.b;
     case 1:
@@ -391,7 +396,7 @@ static uint8_t* get_r8_ptr(const uint8_t YYZ, cpu_t* cpu) {
     case 7:
       return &cpu->regs.af.a;
     default:
-      PERRORF("Could not identify r8 placeholder: %d", YYZ);
+      PERRORF("Could not identify r8 placeholder: %d", bits);
       exit(EXIT_FAILURE);
   }
 }
@@ -640,15 +645,15 @@ static bool handle_block0_8bit_opcodes(uint8_t opcode, cpu_t* cpu) {
       flags->c = ~flags->c;
       break;
     }
-    case 0x18: {  // jr imm8
-      const int8_t imm8 = get_imm8(cpu->regs.pc, cpu->mem); // Signed value
+    case 0x18: {                                             // jr imm8
+      const int8_t imm8 = get_imm8(cpu->regs.pc, cpu->mem);  // Signed value
       DBG_PRINT("jr 0x%04X", imm8);
       cpu->regs.pc += imm8;
       break;
     }
-    case 0x10: { // stop
+    case 0x10: {  // stop
       DBG_PRINT("stop");
-      // ! wtf? incomplete
+      cpu->halt = true;
       break;
     }
     default: {
@@ -668,6 +673,18 @@ static void do_block0_insns(const opcode_t opcode_data, cpu_t* cpu) {
   } else if (handle_block0_3bit_opcodes(opcode_data, cpu)) {
     return;
   }
+}
+
+// Handles all block 1 instructions
+static void do_block1_insns(const opcode_t opcode_data, cpu_t* cpu) {
+  if (opcode_data.opcode == 0x76) {  // halt
+    return;
+  }
+
+  // ld r8, r8
+  uint8_t* dest = get_r8_ptr(opcode_data.YYZ, cpu);
+  uint8_t* src = get_r8_ptr(opcode_data.ZZZ, cpu);
+  *dest = *src;
 }
 
 /**
